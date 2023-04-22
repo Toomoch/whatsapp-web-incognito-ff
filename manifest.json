@@ -16,7 +16,7 @@
    },
    "background":
    {
-    "service_worker": "background.js"
+    "scripts": ["background.js"]
    },
    "host_permissions": ["https://web.whatsapp.com/*"],
    "content_scripts": 
