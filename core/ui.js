@@ -599,7 +599,10 @@ async function generateSVGElement(svgImagePath, clazz="", title="", size=24, rol
 
 function onNewMessageNodeAdded(messageNode)
 {
-    var data_id = messageNode.parentElement.getAttribute("data-id");
+    var data_id = messageNode.getAttribute("data-id");
+    if (!data_id) data_id = messageNode.parentElement.getAttribute("data-id");
+    if (data_id == null)
+        debugger;
     var msgID = data_id.split("_")[2];
 
     restoreDeletedMessageIfNeeded(messageNode, msgID);
@@ -646,7 +649,7 @@ function restoreDeletedMessageIfNeeded(messageNode, msgID)
             }
         }
 
-        var messageSubElement = messageNode.firstChild.firstChild; // oh well
+        var messageSubElement = messageNode.getElementsByClassName(UIClassNames.CHAT_MESSAGE_INNER_TEXT_DIV)[0]; // oh well
         if (!messageSubElement) return;
 
         if (!didFindInDeletedMessagesDB && shouldTryToSyntehesizeMessage)
@@ -661,122 +664,128 @@ function restoreDeletedMessageIfNeeded(messageNode, msgID)
         }
 
         //
-        // If we reached this point, it means that for some reason we couldn't just block the deletion message eariler
+        // If we reached this point, it means that for some reason we couldn't just block the REVOKE message eariler
         // This might happen if other stuff were sent in the relevant packet (see onMessageNodeReceived)
         // So ideally, the following code should be redundant.
         //
 
         // Now try to synthesize the message from the DB (best effort)
-        
-        messageSubElement.textContent = "";
+        tryToSynthesizeMessage(messageSubElement, messageData);
+    });
+}
 
-        var textSpanStyle = "font-style: normal; color: rgba(241, 241, 242, 0.95)";
-        var titleSpanStyle = "font-style: normal; color: rgb(128, 128, 128)";
-        textSpan.style.cssText = textSpanStyle;
-        textSpan.className = "copyable-text selectable-text";
-        var titleSpan = document.createElement("span");
-        titleSpan.style.cssText = titleSpanStyle;
-        if (messageData.isMedia)
+function tryToSynthesizeMessage(messageSubElement, messageData)
+{
+    messageSubElement.textContent = "";
+
+    var titleSpan = document.createElement("span");
+    var textSpan = document.createElement("span");
+
+    var textSpanStyle = "font-style: normal; color: rgba(241, 241, 242, 0.95)";
+    var titleSpanStyle = "font-style: normal; color: rgb(128, 128, 128)";
+    textSpan.style.cssText = textSpanStyle;
+    textSpan.className = "copyable-text selectable-text";
+    
+    titleSpan.style.cssText = titleSpanStyle;
+    if (messageData.isMedia)
+    {
+        titleSpan.textContent = "Restored media: \n";
+        messageSubElement.appendChild(titleSpan); // Top title span
+
+        if (messageData.mediaText) textSpan.textContent = "\n" + messageData.mediaText; //caption text span
+        if (messageData.type === "image")
         {
-            titleSpan.textContent = "Restored media: \n";
-            messageSubElement.appendChild(titleSpan); // Top title span
+            const imgTag = document.createElement("img");
+            imgTag.style.cssText = "width: 100%;";
+            //imgTag.className = UIClassNames.IMAGE_IMESSAGE_IMG;
+            imgTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
+            messageSubElement.appendChild(imgTag);
+        }
+        else if (messageData.type === "sticker")
+        {
+            const imgTag = document.createElement("img");
+            imgTag.className = UIClassNames.STICKER_MESSAGE_TAG;
+            imgTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
+            messageSubElement.appendChild(imgTag);
+        }
+        else if (messageData.type === "video")
+        {
+            const vidTag = document.createElement("video");
+            vidTag.controls = true;
+            vidTag.style.cssText = "width: 100%;";
+            const sourceTag = document.createElement("source");
+            sourceTag.type = messageData.mimetype;
+            sourceTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
+            vidTag.appendChild(sourceTag);
+            messageSubElement.appendChild(vidTag);
+        }
+        else if (messageData.type === "document")
+        {
+            const aTag = document.createElement("a");
+            aTag.download = messageData.fileName;
+            aTag.href = "data:" + messageData.mimetype + ";base64," + messageData.body;
+            aTag.textContent = "Download \"" + messageData.fileName + "\"";
+            messageSubElement.appendChild(aTag);
+        }
+        else if (messageData.type === "ptt") // audio file
+        {
+            const audioTag = document.createElement("audio");
+            audioTag.controls = true;
+            const sourceTag = document.createElement("source");
+            sourceTag.type = messageData.mimetype;
+            sourceTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
+            audioTag.appendChild(sourceTag);
+            messageSubElement.appendChild(audioTag);
+        }
+    }
+    else
+    {
+        if (messageData.type === "vcard") // contact cards
+        {
+            let vcardBody = messageData.body;
+            vcardBody = vcardBody.split(":");
+            var phone = vcardBody[vcardBody.length - 2].slice(0, -4);
+            var aTagPhone = document.createElement("a");
+            aTagPhone.href = "tel:" + phone;
+            aTagPhone.textContent = phone;
+            aTagPhone.target = "_blank";
+            aTagPhone.rel = "noopener noreferrer";
+            var name = vcardBody[4].split(";")[0].slice(0, -4);
 
-            if (messageData.mediaText) textSpan.textContent = "\n" + messageData.mediaText; //caption text span
-            if (messageData.type === "image")
-            {
-                const imgTag = document.createElement("img");
-                imgTag.style.cssText = "width: 100%;";
-                //imgTag.className = UIClassNames.IMAGE_IMESSAGE_IMG;
-                imgTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
-                messageSubElement.appendChild(imgTag);
-            }
-            else if (messageData.type === "sticker")
-            {
-                const imgTag = document.createElement("img");
-                imgTag.className = UIClassNames.STICKER_MESSAGE_TAG;
-                imgTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
-                messageSubElement.appendChild(imgTag);
-            }
-            else if (messageData.type === "video")
-            {
-                const vidTag = document.createElement("video");
-                vidTag.controls = true;
-                vidTag.style.cssText = "width: 100%;";
-                const sourceTag = document.createElement("source");
-                sourceTag.type = messageData.mimetype;
-                sourceTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
-                vidTag.appendChild(sourceTag);
-                messageSubElement.appendChild(vidTag);
-            }
-            else if (messageData.type === "document")
-            {
-                const aTag = document.createElement("a");
-                aTag.download = messageData.fileName;
-                aTag.href = "data:" + messageData.mimetype + ";base64," + messageData.body;
-                aTag.textContent = "Download \"" + messageData.fileName + "\"";
-                messageSubElement.appendChild(aTag);
-            }
-            else if (messageData.type === "ptt") // audio file
-            {
-                const audioTag = document.createElement("audio");
-                audioTag.controls = true;
-                const sourceTag = document.createElement("source");
-                sourceTag.type = messageData.mimetype;
-                sourceTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
-                audioTag.appendChild(sourceTag);
-                messageSubElement.appendChild(audioTag);
-            }
+            titleSpan.textContent = "Restored contact card: \r\n";
+            textSpan.textContent = "Name: " + name + "\n" + "Contact No.: ";
+
+            messageSubElement.appendChild(titleSpan);
+            textSpan.appendChild(aTagPhone);
+
+        }
+        else if (messageData.type === "location")
+        {
+            titleSpan.textContent = "Restored location: \n";
+            var imgTag = document.createElement("img");
+            imgTag.style.cssText = "width: 100%;";
+            //imgTag.className = UIClassNames.IMAGE_IMESSAGE_IMG;
+            imgTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
+            messageSubElement.appendChild(imgTag);
+
+            var locationLink = document.createElement("a");
+            locationLink.target = "_blank";
+            locationLink.rel = "noopener noreferrer";
+            locationLink.href = "https://www.google.com/maps/search/?api=1&query=" + 
+                                    encodeURIComponent(messageData.lat + " " + messageData.lng);
+            locationLink.textContent = "Google Maps Link"
+            messageSubElement.appendChild(locationLink);
         }
         else
         {
-            if (messageData.type === "vcard") // contact cards
-            {
-                let vcardBody = messageData.body;
-                vcardBody = vcardBody.split(":");
-                var phone = vcardBody[vcardBody.length - 2].slice(0, -4);
-                var aTagPhone = document.createElement("a");
-                aTagPhone.href = "tel:" + phone;
-                aTagPhone.textContent = phone;
-                aTagPhone.target = "_blank";
-                aTagPhone.rel = "noopener noreferrer";
-                var name = vcardBody[4].split(";")[0].slice(0, -4);
-
-                titleSpan.textContent = "Restored contact card: \r\n";
-                textSpan.textContent = "Name: " + name + "\n" + "Contact No.: ";
-
-                messageSubElement.appendChild(titleSpan);
-                textSpan.appendChild(aTagPhone);
-
-            }
-            else if (messageData.type === "location")
-            {
-                titleSpan.textContent = "Restored location: \n";
-                var imgTag = document.createElement("img");
-                imgTag.style.cssText = "width: 100%;";
-                //imgTag.className = UIClassNames.IMAGE_IMESSAGE_IMG;
-                imgTag.src = "data:" + messageData.mimetype + ";base64," + messageData.body;
-                messageSubElement.appendChild(imgTag);
-
-                var locationLink = document.createElement("a");
-                locationLink.target = "_blank";
-                locationLink.rel = "noopener noreferrer";
-                locationLink.href = "https://www.google.com/maps/search/?api=1&query=" + 
-                                        encodeURIComponent(messageData.lat + " " + messageData.lng);
-                locationLink.textContent = "Google Maps Link"
-                messageSubElement.appendChild(locationLink);
-            }
-            else
-            {
-                titleSpan.textContent = "Restored message: \n";
-                textSpan.textContent = messageData.body;
-                messageSubElement.appendChild(titleSpan);
-            }
-
+            titleSpan.textContent = "Restored message: \n";
+            textSpan.textContent = messageData.body;
+            messageSubElement.appendChild(titleSpan);
         }
-            
-        messageSubElement.appendChild(textSpan);
-        messageSubElement.appendChild(span);
-    })
+
+    }
+        
+    messageSubElement.appendChild(textSpan);
 }
 
 function markMessageNodeDeviceIfPossible(messageNode, msgID)

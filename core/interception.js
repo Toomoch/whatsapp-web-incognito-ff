@@ -74,7 +74,7 @@ wsHook.before = function (originalData, url)
                 manipulatedNode = await NodeHandler.onSentNode(manipulatedNode, isMultiDevice);
                 decryptedFrames[i] = {node: manipulatedNode, counter: counter};
 
-                if (WAdebugMode)
+                if (WAdebugMode || WAPassthroughWithDebug)
                 {
                     printNode(manipulatedNode, isIncoming=false, tag, decryptedFrame);
                     if (WAPassthroughWithDebug) return originalData;
@@ -143,10 +143,10 @@ wsHook.after = function (messageEvent, url)
                 var nodeParser = new NodeParser(isMultiDevice);
                 var node = nodeParser.readNode(new NodeBinaryReader(decryptedFrame));
                 
-                if (WAdebugMode)
+                if (WAdebugMode || WAPassthroughWithDebug)
                 {
                     printNode(node, isIncoming=true, tag, decryptedFrame);
-
+                    
                     if (WAPassthroughWithDebug) return messageEvent;
                 }
 
@@ -190,6 +190,7 @@ wsHook.after = function (messageEvent, url)
 
         console.error("Passing-through incoming packet due to error:");
         console.error(exception);
+        debugger;
         return messageEvent;
     };
 
@@ -223,7 +224,7 @@ NodeHandler.isSentNodeAllowed = function (node, tag)
         var shouldBlock = 
             (readConfirmationsHookEnabled && action === "read") ||
             (readConfirmationsHookEnabled && action == "receipt" && data["type"] == "read") ||
-            (readConfirmationsHookEnabled && action == "receipt" && data["type"] == "read-self") ||
+            //(readConfirmationsHookEnabled && action == "receipt" && data["type"] == "read-self") ||
             (readConfirmationsHookEnabled && action == "receipt" && data["type"] === "played") ||
             (readConfirmationsHookEnabled && action == "received" && data["type"] === "played") ||
 
@@ -423,14 +424,14 @@ NodeHandler.onNodeReceived = async function (node, isMultiDevice)
     {
         var currentNode = messageNodes[i];
 
-        var nodeMessages = await getMessagesFromNode(currentNode, isMultiDevice);
-        for (var message of nodeMessages)
+        var encNodes = await getMessagesFromNode(currentNode, isMultiDevice);
+        for (var message of encNodes)
         {
-            isAllowed = NodeHandler.onMessageNodeReceived(currentNode, message, isMultiDevice, nodeMessages, messageNodes);
+            isAllowed = NodeHandler.onMessageNodeReceived(currentNode, message, isMultiDevice, encNodes, messageNodes);
             if (!isAllowed) break;
         }
 
-        messages = messages.concat(nodeMessages);
+        messages = messages.concat(encNodes);
     }
 
     if (WAdebugMode && messages.length > 0)
@@ -442,7 +443,7 @@ NodeHandler.onNodeReceived = async function (node, isMultiDevice)
     return isAllowed;
 }
 
-NodeHandler.onMessageNodeReceived = async function(currentNode, message, isMultiDevice, nodeMessages, messageNodes)
+NodeHandler.onMessageNodeReceived = async function(currentNode, message, isMultiDevice, encNodes, messageNodes)
 {
     var isAllowed = true;
     var remoteJid = null;
@@ -473,7 +474,7 @@ NodeHandler.onMessageNodeReceived = async function(currentNode, message, isMulti
     {
         isAllowed = true;
     }
-    else if (isRevokeMessage && nodeMessages.length == 1 && messageNodes.length == 1)
+    else if (isRevokeMessage && encNodes.length == 1 && messageNodes.length == 1)
     {
         console.log("WhatsIncognito: --- Blocking message REVOKE action! ---");
         isAllowed = false;
@@ -595,7 +596,16 @@ async function getMessagesFromNode(node, isMultiDevice)
     else
     {
         // decrypt the signal message
-        return MultiDevice.decryptE2EMessage(node);
+        try
+        {
+            return MultiDevice.decryptE2EMessage(node);
+        }
+        catch (exception)
+        {
+            console.error("Could not decrypt E2E message with type " + node.attrs["type"] + " due to exception:");
+            console.error(exception);
+            debugger;
+        }
     }
 }
 
@@ -607,7 +617,24 @@ function exposeWhatsAppAPI()
 {
     window.WhatsAppAPI = {};
 
-    var moduleFinder = moduleRaid();
+    var moduleFinder = getModuleFinder();
+
+    /*
+    var suspectedModules = moduleFinder.findModule("isLegitErrorStack");
+    if (suspectedModules.length > 0)
+    {
+        suspectedModules[0].isLegitErrorStack = function() {return true;};
+        Object.defineProperty(suspectedModules[0], "isLegitErrorStack", {
+            get()
+            {
+                debugger;
+                return function() {return true;};
+            }
+        })
+
+    }
+    */
+
     window.WhatsAppAPI.downloadManager = moduleFinder.findModule("downloadManager")[0].downloadManager;
     window.WhatsAppAPI.Store = moduleFinder.findModule("Msg")[0].default;
     window.WhatsAppAPI.Seen = moduleFinder.findModule("sendSeen")[0];
